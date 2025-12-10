@@ -1,7 +1,9 @@
 pyyaml
 lxml
 gymnasium==0.29.1
+gym==0.26.2
 networkx
+numpy<2
 mujoco==3.4.0
 mujoco-mjx==3.4.0
 jax==0.4.35
