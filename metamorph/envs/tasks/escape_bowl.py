@@ -1,5 +1,5 @@
 import numpy as np
-from gym import utils
+from gymnasium import utils
 
 from metamorph.config import cfg
 from metamorph.envs.modules.agent import Agent

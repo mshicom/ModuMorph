@@ -1,11 +1,11 @@
 import os
 from collections import OrderedDict
 
-import gym
+import gymnasium as gym
 import mujoco_py
 import numpy as np
-from gym import spaces
-from gym.utils import seeding
+from gymnasium import spaces
+from gymnasium.utils import seeding
 
 from metamorph.config import cfg
 from metamorph.utils import exception as exu

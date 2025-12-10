@@ -2,7 +2,7 @@ import time
 from collections import defaultdict
 from collections import deque
 
-import gym
+import gymnasium as gym
 import torch
 
 import metamorph.envs  # Register envs
@@ -21,11 +21,11 @@ def make_env(env_id, seed, rank, xml_file=None):
     def _thunk():
         if env_id in CUSTOM_ENVS:
             if env_id == 'Unimal-v0':
-                env = gym.make(env_id, agent_name=xml_file)
+                env = gym.make(env_id, agent_name=xml_file, disable_env_checker=True)
             elif env_id == 'Modular-v0':
-                env = gym.make(f"{xml_file}-v0")
+                env = gym.make(f"{xml_file}-v0", disable_env_checker=True)
         else:
-            env = gym.make(env_id)
+            env = gym.make(env_id, disable_env_checker=True)
         # Note this does not change the global seeds. It creates a numpy
         # rng gen for env.
         env.seed(seed + rank)

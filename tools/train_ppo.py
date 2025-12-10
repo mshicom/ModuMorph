@@ -4,7 +4,7 @@ import sys
 
 import torch
 
-from gym.envs.registration import register
+from gymnasium.envs.registration import register
 
 from metamorph.algos.ppo.ppo import PPO
 from metamorph.config import cfg
