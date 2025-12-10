@@ -4,7 +4,7 @@ import sys
 
 import torch
 
-from gym.envs.registration import register
+from gymnasium.envs.registration import register
 
 from metamorph.algos.ppo.ppo import PPO
 from metamorph.config import cfg
@@ -92,7 +92,7 @@ def calculate_max_iters():
 
 
 def maybe_infer_walkers():
-    if cfg.ENV_NAME not in ["Unimal-v0", "Modular-v0"]:
+    if cfg.ENV_NAME not in ["Unimal", "Unimal-v0", "Modular", "Modular-v0"]:
         return
 
     # Only infer the walkers if this option was not specified
@@ -104,7 +104,7 @@ def maybe_infer_walkers():
         for xml_file in os.listdir(os.path.join(cfg.ENV.WALKER_DIR, "xml"))
     ]
 
-    if cfg.ENV_NAME == 'Modular-v0':
+    if cfg.ENV_NAME in ['Modular', 'Modular-v0']:
         register_modular_envs()
 
 

@@ -52,7 +52,7 @@ class PointNavTask(UnimalEnv, utils.EzPickle):
             for marker in self.metadata["markers"]:
                 self.viewer.add_marker(**marker)
 
-        return observation, reward, False, info
+        return observation, reward, False, False, info
 
 
 def make_env_point_nav(xml, unimal_id):

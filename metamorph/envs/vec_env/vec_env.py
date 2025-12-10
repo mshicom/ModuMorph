@@ -194,6 +194,8 @@ class VecEnvObservationWrapper(VecEnvWrapper):
 
     def reset(self):
         obs = self.venv.reset()
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, _ = obs
         return self.process(obs)
 
     def step_wait(self):

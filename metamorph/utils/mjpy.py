@@ -1,8 +1,264 @@
 import itertools
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple
 
+import mujoco
+import numpy as np
 from lxml import etree
-from mujoco_py import MjSim
-from mujoco_py import load_model_from_xml
+
+
+def _qpos_width(joint_type: int) -> int:
+    if joint_type == mujoco.mjtJoint.mjJNT_FREE:
+        return 7
+    if joint_type == mujoco.mjtJoint.mjJNT_BALL:
+        return 4
+    return 1
+
+
+def _qvel_width(joint_type: int) -> int:
+    if joint_type == mujoco.mjtJoint.mjJNT_FREE:
+        return 6
+    if joint_type == mujoco.mjtJoint.mjJNT_BALL:
+        return 3
+    return 1
+
+
+def _build_name_list(model: mujoco.MjModel, obj_type: int, count: int) -> Tuple[str, ...]:
+    return tuple(
+        mujoco.mj_id2name(model, obj_type, idx) or ""
+        for idx in range(count)
+    )
+
+
+class ModelWrapper:
+    """Lightweight shim to mirror mujoco_py's Model helpers."""
+
+    def __init__(self, model: mujoco.MjModel):
+        self._model = model
+        self.joint_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_JOINT, model.njnt)
+        self.body_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_BODY, model.nbody)
+        self.geom_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_GEOM, model.ngeom)
+        self.site_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_SITE, model.nsite)
+        self.sensor_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_SENSOR, model.nsensor)
+        self.camera_names = _build_name_list(model, mujoco.mjtObj.mjOBJ_CAMERA, model.ncam)
+        self._camera_name2id: Dict[str, int] = {
+            name: idx for idx, name in enumerate(self.camera_names) if name
+        }
+
+    # ------------------------------------------------------------------
+    # Name lookup helpers
+    # ------------------------------------------------------------------
+    def site_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SITE, name)
+
+    def site_id2name(self, idx: int) -> str:
+        return mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_SITE, idx)
+
+    def geom_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+
+    def geom_id2name(self, idx: int) -> str:
+        return mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, idx)
+
+    def body_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, name)
+
+    def body_id2name(self, idx: int) -> str:
+        return mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, idx)
+
+    def sensor_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+
+    def sensor_id2name(self, idx: int) -> str:
+        return mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_SENSOR, idx)
+
+    def camera_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, name)
+
+    # ------------------------------------------------------------------
+    # Address helpers
+    # ------------------------------------------------------------------
+    def get_joint_qpos_addr(self, joint_name: str):
+        j_id = self.joint_name2id(joint_name)
+        addr = int(self._model.jnt_qposadr[j_id])
+        width = _qpos_width(int(self._model.jnt_type[j_id]))
+        return (addr, addr + width) if width > 1 else addr
+
+    def get_joint_qvel_addr(self, joint_name: str):
+        j_id = self.joint_name2id(joint_name)
+        addr = int(self._model.jnt_dofadr[j_id])
+        width = _qvel_width(int(self._model.jnt_type[j_id]))
+        return (addr, addr + width) if width > 1 else addr
+
+    def joint_name2id(self, name: str) -> int:
+        return mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+
+    def joint_id2name(self, idx: int) -> str:
+        return mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_JOINT, idx)
+
+    def __getattr__(self, item):
+        return getattr(self._model, item)
+
+
+class DataWrapper:
+    """Expose mujoco.MjData attributes with mujoco_py-like helpers."""
+
+    def __init__(self, model: ModelWrapper, data: mujoco.MjData):
+        self._model = model
+        self._data = data
+
+    def __getattr__(self, item):
+        return getattr(self._data, item)
+
+    # Convenience properties mirroring mujoco_py
+    @property
+    def body_xpos(self):
+        return self._data.xpos
+
+    @property
+    def body_xmat(self):
+        return self._data.xmat
+
+    @property
+    def body_xquat(self):
+        return self._data.xquat
+
+    @property
+    def body_xvelp(self):
+        # Linear velocity in global frame
+        return self._data.cvel[:, 3:]
+
+    @property
+    def body_xvelr(self):
+        # Angular velocity in global frame
+        return self._data.cvel[:, :3]
+
+    @property
+    def geom_xpos(self):
+        return self._data.geom_xpos
+
+    @property
+    def site_xpos(self):
+        return self._data.site_xpos
+
+    def get_body_xpos(self, name: str):
+        idx = self._model.body_name2id(name)
+        return self._data.xpos[idx].copy()
+
+    def get_body_xmat(self, name: str):
+        idx = self._model.body_name2id(name)
+        return self._data.xmat[idx].copy()
+
+    def get_site_xpos(self, name: str):
+        idx = self._model.site_name2id(name)
+        return self._data.site_xpos[idx].copy()
+
+
+@dataclass
+class MjSimState:
+    time: float
+    qpos: np.ndarray
+    qvel: np.ndarray
+    act: np.ndarray
+    udd_state: Optional[Dict] = None
+
+
+class MjSim:
+    """Minimal simulation wrapper compatible with previous mujoco_py usage."""
+
+    def __init__(self, model: mujoco.MjModel):
+        self.model = ModelWrapper(model)
+        self.data = DataWrapper(self.model, mujoco.MjData(model))
+        self._initial_qpos = self.data.qpos.copy()
+        self._initial_qvel = self.data.qvel.copy()
+        self.forward()
+
+    # Simulation lifecycle -------------------------------------------------
+    def reset(self):
+        mujoco.mj_resetData(self.model._model, self.data._data)
+        self.data.qpos[:] = self._initial_qpos
+        self.data.qvel[:] = self._initial_qvel
+        self.forward()
+
+    def step(self):
+        mujoco.mj_step(self.model._model, self.data._data)
+
+    def forward(self):
+        mujoco.mj_forward(self.model._model, self.data._data)
+
+    def get_state(self) -> MjSimState:
+        return MjSimState(
+            self.data.time,
+            self.data.qpos.copy(),
+            self.data.qvel.copy(),
+            self.data.act.copy(),
+            udd_state=None,
+        )
+
+    def set_state(self, state: MjSimState):
+        self.data.qpos[:] = state.qpos
+        self.data.qvel[:] = state.qvel
+        if state.act is not None:
+            self.data.act[:] = state.act
+        self.forward()
+
+
+class OffscreenViewer:
+    """Offscreen renderer built on the new mujoco API."""
+
+    def __init__(self, sim: MjSim, device_id: int = -1):
+        del device_id  # Kept for API compatibility
+        self.sim = sim
+        self.renderer = mujoco.Renderer(sim.model._model)
+        self._last_rgb = None
+        self._last_depth = None
+        self._markers = []
+
+    def render(self, width: int, height: int, camera_id: Optional[int] = None):
+        self.renderer.update_scene(self.sim.data._data, camera_id=camera_id)
+        rgb, depth = self.renderer.render(width=width, height=height, depth=True)
+        self._last_rgb = rgb
+        self._last_depth = depth
+
+    def read_pixels(self, width: int, height: int, depth: bool = False):
+        # width/height kept for API parity
+        del width, height
+        if depth:
+            return self._last_rgb, self._last_depth
+        return self._last_rgb
+
+    def add_marker(self, **kwargs):
+        self._markers.append(kwargs)
+
+    def update_sim(self, sim: MjSim):
+        self.sim = sim
+        self.renderer = mujoco.Renderer(sim.model._model)
+
+
+class HumanViewer:
+    """Simple wrapper around mujoco.viewer for human rendering."""
+
+    def __init__(self, sim: MjSim):
+        self.sim = sim
+        self._viewer = mujoco.viewer.launch_passive(sim.model._model, sim.data._data)
+        self._markers = []
+
+    def render(self, *_, **__):
+        if self._viewer is None:
+            return
+        if hasattr(self._viewer, "is_running") and not self._viewer.is_running():
+            return
+        self._viewer.sync()
+
+    def add_marker(self, **kwargs):
+        # The new viewer does not expose add_marker; store for parity.
+        self._markers.append(kwargs)
+
+    def update_sim(self, sim: MjSim):
+        self.sim = sim
+        if self._viewer is not None:
+            self._viewer.close()
+        self._viewer = mujoco.viewer.launch_passive(sim.model._model, sim.data._data)
 
 
 def mj_name2id(sim, type_, name):
@@ -42,6 +298,11 @@ def mjmodel_from_etree(root):
     """Return MjModel from etree root."""
     model_string = etree.tostring(root, encoding="unicode", pretty_print=True)
     return load_model_from_xml(model_string)
+
+
+def load_model_from_xml(xml_string: str) -> mujoco.MjModel:
+    """Load an MjModel from an XML string using the new mujoco API."""
+    return mujoco.MjModel.from_xml_string(xml_string)
 
 
 def joint_qpos_idxs(sim, joint_name):

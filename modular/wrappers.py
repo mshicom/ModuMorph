@@ -1,13 +1,13 @@
 import os
 import random
 
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
-from gym import utils
+from gymnasium import spaces
+from gymnasium import utils
 
-from gym.spaces import Box
-from gym.spaces import Dict
+from gymnasium.spaces import Box
+from gymnasium.spaces import Dict
 
 from metamorph.config import cfg
 from metamorph.envs.modules.agent import create_agent_xml
@@ -60,7 +60,10 @@ class ModularObservationPadding(gym.ObservationWrapper):
 
     def reset(self, **kwargs):
         observation = self.env.reset(**kwargs)
-        return self.observation(observation)
+        info = {}
+        if isinstance(observation, tuple) and len(observation) == 2:
+            observation, info = observation
+        return self.observation(observation), info
 
 
 class ConsistentModularObservationPadding(ModularObservationPadding):

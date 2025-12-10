@@ -12,6 +12,8 @@ class VecPyTorch(VecEnvWrapper):
 
     def reset(self):
         obs = self.venv.reset()
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, _ = obs
         obs = self._obs_np2torch(obs)
         return obs
 

@@ -49,7 +49,7 @@ class ObstacleTask(UnimalEnv, utils.EzPickle):
             "mj_step_error": mj_step_error
         }
 
-        return observation, reward, False, info
+        return observation, reward, False, False, info
 
 
 def make_env_obstacle(xml, unimal_id):

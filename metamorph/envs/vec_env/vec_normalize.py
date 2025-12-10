@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 import numpy as np
 
 from .running_mean_std import RunningMeanStd
@@ -100,6 +100,8 @@ class VecNormalize(VecEnvWrapper):
     def reset(self):
         self.ret = np.zeros(self.num_envs)
         obs = self.venv.reset()
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, _ = obs
         return self._obfilt(obs)
 
     def train(self):

@@ -1,15 +1,15 @@
 import os
 from collections import OrderedDict
 
-import gym
-import mujoco_py
+import gymnasium as gym
 import numpy as np
-from gym import spaces
-from gym.utils import seeding
+from gymnasium import spaces
+from gymnasium.utils import seeding
 
 from metamorph.config import cfg
 from metamorph.utils import exception as exu
 from metamorph.utils import file as fu
+from metamorph.utils import mjpy as mu
 from metamorph.utils import spaces as spu
 from metamorph.utils import sample as su
 from metamorph.utils import xml as xu
@@ -95,8 +95,8 @@ class UnimalEnv(gym.Env):
             module.modify_xml_step(self, root, tree)
 
         xml_str = xu.etree_to_str(root)
-        model = mujoco_py.load_model_from_xml(xml_str)
-        sim = mujoco_py.MjSim(model)
+        model = mu.load_model_from_xml(xml_str)
+        sim = mu.MjSim(model)
         # Update module fields which require sim
         for _, module in self.modules.items():
             module.modify_sim_step(self, sim)
@@ -149,7 +149,10 @@ class UnimalEnv(gym.Env):
     ###########################################################################
     # Reset sim
     ###########################################################################
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        if seed is not None:
+            self.seed(seed)
+
         if self.sim is None or cfg.ENV.NEW_SIM_ON_RESET:
             self.sim = self._get_sim()
         else:
@@ -164,7 +167,7 @@ class UnimalEnv(gym.Env):
         # on SelectKeysWrapper
         self.observation_space = spu.convert_obs_to_space(obs)
         self.metadata["video.frames_per_second"] = int(np.round(1.0 / self.dt))
-        return obs
+        return obs, {}
 
     def reset_model(self):
         noise_low = -cfg.ENV.RESET_NOISE_SCALE
@@ -193,7 +196,7 @@ class UnimalEnv(gym.Env):
             self.sim.model.nv,
         )
         old_state = self.sim.get_state()
-        new_state = mujoco_py.MjSimState(
+        new_state = mu.MjSimState(
             old_state.time, qpos, qvel, old_state.act, old_state.udd_state
         )
         self.sim.set_state(new_state)
@@ -269,15 +272,17 @@ class UnimalEnv(gym.Env):
         self.viewer = self._viewers.get(mode)
         if self.viewer is None:
             if mode == "human":
-                self.viewer = mujoco_py.MjViewer(self.sim)
+                self.viewer = mu.HumanViewer(self.sim)
             elif mode == "rgb_array" or mode == "depth_array":
-                self.viewer = mujoco_py.MjRenderContextOffscreen(self.sim, -1)
+                self.viewer = mu.OffscreenViewer(self.sim, -1)
 
             self.viewer_setup()
             self._viewers[mode] = self.viewer
         return self.viewer
 
     def viewer_setup(self):
+        if not hasattr(self.viewer, "cam"):
+            return
         for key, value in DEFAULT_CAMERA_CONFIG.items():
             if isinstance(value, np.ndarray):
                 getattr(self.viewer.cam, key)[:] = value

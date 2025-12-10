@@ -38,16 +38,8 @@ RUN curl -o /usr/local/bin/patchelf https://s3-us-west-2.amazonaws.com/openai-sc
 
 ENV LANG C.UTF-8
 
-RUN mkdir -p /user/.mujoco \
-    && wget https://www.roboti.us/download/mujoco200_linux.zip -O mujoco.zip \
-    && unzip mujoco.zip -d /user/.mujoco \
-    && mv /user/.mujoco/mujoco200_linux /user/.mujoco/mujoco200 \
-    && rm mujoco.zip
-COPY docker/mjkey.txt /user/.mujoco/
-ENV LD_LIBRARY_PATH /user/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
 ENV LD_LIBRARY_PATH /usr/local/nvidia/lib64:${LD_LIBRARY_PATH}
-ENV MUJOCO_PY_MUJOCO_PATH /user/.mujoco/mujoco200
-ENV MUJOCO_PY_MJKEY_PATH /user/.mujoco/mjkey.txt
+ENV MUJOCO_GL=egl
 
 COPY docker/build_files/Xdummy /usr/local/bin/Xdummy
 RUN chmod +x /usr/local/bin/Xdummy
@@ -85,7 +77,6 @@ RUN /bin/bash -c ". activate docker_env"
 
 # Change permissions
 RUN useradd --shell /bin/bash -u ${USER_ID} -o -d /user user
-RUN chown -R user /user/miniconda/envs/docker_env/lib/python3.8/site-packages/mujoco_py/
 
 # Set python ENV variables
 ENV PYTHONUNBUFFERED=1

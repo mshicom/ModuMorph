@@ -2,12 +2,13 @@ import time
 from collections import defaultdict
 from collections import deque
 
-import gym
+import gymnasium as gym
 import torch
 
 import metamorph.envs  # Register envs
 from metamorph.config import cfg
 from metamorph.envs import CUSTOM_ENVS
+from metamorph.envs.tasks import task as task_module
 from metamorph.envs.vec_env.dummy_vec_env import DummyVecEnv
 from metamorph.envs.vec_env.pytorch_vec_env import VecPyTorch
 from metamorph.envs.vec_env.subproc_vec_env import SubprocVecEnv
@@ -20,15 +21,17 @@ from modular.wrappers import ModularObservationPadding, ModularActionPadding
 def make_env(env_id, seed, rank, xml_file=None):
     def _thunk():
         if env_id in CUSTOM_ENVS:
-            if env_id == 'Unimal-v0':
-                env = gym.make(env_id, agent_name=xml_file)
-            elif env_id == 'Modular-v0':
-                env = gym.make(f"{xml_file}-v0")
+            if env_id in ['Unimal', 'Unimal-v0']:
+                env = task_module.make_env(xml_file)
+            elif env_id in ['Modular', 'Modular-v0']:
+                env = gym.make(f"{xml_file}-v0", disable_env_checker=True)
+            else:
+                env = gym.make(env_id, disable_env_checker=True)
         else:
-            env = gym.make(env_id)
+            env = gym.make(env_id, disable_env_checker=True)
         # Note this does not change the global seeds. It creates a numpy
         # rng gen for env.
-        env.seed(seed + rank)
+        env.reset(seed=seed + rank)
         # Don't add wrappers above TimeLimit
         if str(env.__class__.__name__).find("TimeLimit") >= 0:
             env = TimeLimitMask(env)
@@ -186,11 +189,18 @@ def set_ob_rms(venv, ob_rms):
 # Checks whether done was caused my timit limits or not
 class TimeLimitMask(gym.Wrapper):
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
-        if done and self.env._max_episode_steps == self.env._elapsed_steps:
+        obs, rew, terminated, truncated, info = self.env.step(action)
+
+        timeout = info.get("TimeLimit.truncated", False)
+        if (terminated or truncated) and (
+            getattr(self.env, "_max_episode_steps", None)
+            == getattr(self.env, "_elapsed_steps", None)
+        ):
+            timeout = True
+        if timeout:
             info["timeout"] = True
 
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def reset(self, **kwargs):
         return self.env.reset(**kwargs)
@@ -217,9 +227,8 @@ class RecordEpisodeStatistics(gym.Wrapper):
         return observation
 
     def step(self, action):
-        observation, reward, done, info = super(
-            RecordEpisodeStatistics, self
-        ).step(action)
+        observation, reward, terminated, truncated, info = super(RecordEpisodeStatistics, self).step(action)
+        done = terminated or truncated
         self.episode_return += reward
         self.episode_length += 1
         for key, value in info.items():
@@ -240,4 +249,4 @@ class RecordEpisodeStatistics(gym.Wrapper):
             self.length_queue.append(self.episode_length)
             self.episode_return = 0.0
             self.episode_length = 0
-        return observation, reward, done, info
+        return observation, reward, terminated, truncated, info

@@ -1,5 +1,5 @@
 import numpy as np
-from gym import utils
+from gymnasium import utils
 from scipy.spatial import distance as scipy_distance
 
 import derl.utils.mjpy as mu
@@ -104,10 +104,12 @@ class ManipulationTask(UnimalEnv, utils.EzPickle):
             for marker in self.metadata["markers"]:
                 self.viewer.add_marker(**marker)
 
-        return observation, reward, False, info
+        return observation, reward, False, False, info
 
     def reset(self):
         obs = super().reset()
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, _ = obs
         self.reached_obj = False
         self.reach_goal_agent = False
         self.reach_goal_obj = False

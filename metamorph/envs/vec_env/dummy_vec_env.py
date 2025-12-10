@@ -62,14 +62,25 @@ class DummyVecEnv(VecEnv):
             # if isinstance(self.envs[e].action_space, spaces.Discrete):
             #    action = int(action)
 
-            (
-                obs,
-                self.buf_rews[e],
-                self.buf_dones[e],
-                self.buf_infos[e],
-            ) = self.envs[e].step(action)
+            result = self.envs[e].step(action)
+            if len(result) == 5:
+                obs, self.buf_rews[e], terminated, truncated, self.buf_infos[e] = result
+                self.buf_dones[e] = terminated or truncated
+                self.buf_infos[e] = self.buf_infos[e] or {}
+                self.buf_infos[e].setdefault("terminated", terminated)
+                self.buf_infos[e].setdefault("truncated", truncated)
+            else:
+                (
+                    obs,
+                    self.buf_rews[e],
+                    self.buf_dones[e],
+                    self.buf_infos[e],
+                ) = result
             if self.buf_dones[e]:
                 obs = self.envs[e].reset()
+                if isinstance(obs, tuple) and len(obs) == 2:
+                    obs, info = obs
+                    self.buf_infos[e] = info
             self._save_obs(e, obs)
         return (
             self._obs_from_buf(),
@@ -81,6 +92,9 @@ class DummyVecEnv(VecEnv):
     def reset(self):
         for e in range(self.num_envs):
             obs = self.envs[e].reset()
+            if isinstance(obs, tuple) and len(obs) == 2:
+                obs, info = obs
+                self.buf_infos[e] = info
             self._save_obs(e, obs)
         return self._obs_from_buf()
 

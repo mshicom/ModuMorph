@@ -1,7 +1,7 @@
 import math
 import sys
 
-import gym
+import gymnasium as gym
 import numpy as np
 
 from metamorph.config import cfg
@@ -13,6 +13,14 @@ from metamorph.utils import spaces as spu
 np.set_printoptions(threshold=sys.maxsize)
 
 """Observation Wrappers."""
+
+
+def _parse_step_result(result):
+    """Normalize env.step outputs to gymnasium's 5-tuple."""
+    if len(result) == 5:
+        return result
+    obs, rew, done, info = result
+    return obs, rew, done, False, info
 
 
 class HfieldObs1D(gym.ObservationWrapper):
@@ -59,13 +67,18 @@ class HfieldObs2D(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
+        info = {}
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, info = obs
         obs = self._add_hfield_obs(obs, None)
-        return obs
+        return obs, info
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         obs = self._add_hfield_obs(obs, info)
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def _add_hfield_obs(self, obs, info):
         sim = self.unwrapped.sim
@@ -203,7 +216,7 @@ class UnimalHeightObs(gym.ObservationWrapper):
         self.observation_space = spu.update_obs_space(env, {"torso_height": (1,)})
 
     def observation(self, obs):
-        x_pos, y_pos, z_pos = self.sim.data.get_body_xpos("torso/0")
+        x_pos, y_pos, z_pos = self.unwrapped.sim.data.get_body_xpos("torso/0")
 
         # Height of ground is constant if Floor
         if "Floor" in cfg.ENV.MODULES:
@@ -249,14 +262,16 @@ class StandReward(gym.Wrapper):
         super().__init__(env)
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         stand_reward = (
             min(obs["torso_height"], 2.0 * self.env.metadata["orig_height"])
             * cfg.ENV.STAND_REWARD_WEIGHT
         )
         info["__reward__stand"] = stand_reward
         rew += stand_reward
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
 
 class ExploreTerrainReward(gym.Wrapper):
@@ -268,12 +283,17 @@ class ExploreTerrainReward(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
+        info = {}
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, info = obs
         self.visit_grid[:, :] = 0.0
         obs['visitation'] = self.visit_grid.ravel()
-        return obs
+        return obs, info
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         prev_visit_count = np.sum(self.visit_grid)
         row_idx, col_idx = obs["placement_idx"]
         try:
@@ -288,7 +308,7 @@ class ExploreTerrainReward(gym.Wrapper):
         info["metric"] = curr_visit_count
         rew += explore_reward
         obs['visitation'] = self.visit_grid.ravel()
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
 
 """Termination Wrappers."""
@@ -296,24 +316,28 @@ class ExploreTerrainReward(gym.Wrapper):
 
 class TerminateOnWallContact(gym.Wrapper):
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         if check_agent_wall_contact(self.unwrapped.sim):
-            done = True
+            terminated = True
             rew = rew - cfg.ENV.AVOID_REWARD_WEIGHT
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
 
 class TerminateOnTerrainEdge(gym.Wrapper):
     """Terminate episode if unimals are near edge of terrain (along y dir)."""
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         if self.is_near_edge():
-            done = True
-        return obs, rew, done, info
+            terminated = True
+        return obs, rew, terminated, truncated, info
 
     def is_near_edge(self):
-        x_pos, y_pos, _ = self.sim.data.get_body_xpos("torso/0")
+        x_pos, y_pos, _ = self.unwrapped.sim.data.get_body_xpos("torso/0")
         if cfg.TERRAIN.SIZE[1] - abs(y_pos) <= 1:
             return True
         else:
@@ -327,11 +351,13 @@ class TerminateOnFalling(gym.Wrapper):
         super().__init__(env)
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         if self.has_fallen(obs):
-            done = True
+            terminated = True
             info['terminate_on_fall'] = True
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def has_fallen(self, obs):
         if obs["torso_height"] <= self.env.metadata["fall_threshold"]:
@@ -349,18 +375,20 @@ class TerminateOnRotation(gym.Wrapper):
         self.count = 0
 
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         if self.is_rotating(obs):
-            done = True
+            terminated = True
 
-        if done or (self.step_count == self.spec.max_episode_steps):
+        if terminated or truncated or (self.step_count == self.spec.max_episode_steps):
             self.sum = 0
             self.count = 0
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def is_rotating(self, obs):
         # Get torso subtreeangmom sensordata
-        angular_velocity = self.sim.data.sensordata[9:12].copy()
+        angular_velocity = self.unwrapped.sim.data.sensordata[9:12].copy()
         self.sum += np.linalg.norm(angular_velocity)
         self.count += 1
         avg = round(self.sum / self.count, 2)
@@ -373,13 +401,15 @@ class TerminateOnRotation(gym.Wrapper):
 
 class TerminateOnEscape(gym.Wrapper):
     def step(self, action):
-        obs, rew, done, info = self.env.step(action)
+        obs, rew, terminated, truncated, info = _parse_step_result(
+            self.env.step(action)
+        )
         # Due to computational reasons we will never have hfield obs size more
         # than 5 (diag would be ~7, we keep some buffer and make it 8)
         if info["metric"] >= cfg.TERRAIN.SIZE[0] - 8:
-            done = True
+            terminated = True
             rew += 100
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
 
 def check_agent_wall_contact(sim):

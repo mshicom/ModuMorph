@@ -51,7 +51,7 @@ class InclineTask(UnimalEnv, utils.EzPickle):
             "metric": metric,
         }
 
-        return observation, reward, False, info
+        return observation, reward, False, False, info
 
 
 def make_env_incline(xml, unimal_id):

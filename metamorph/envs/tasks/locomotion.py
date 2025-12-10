@@ -42,7 +42,7 @@ class LocomotionTask(UnimalEnv, utils.EzPickle):
         }
         info.update(info_)
 
-        return observation, reward, False, info
+        return observation, reward, False, False, info
 
     def step_1d(self, action):
         x_pos_before = self.sim.data.qpos[0]

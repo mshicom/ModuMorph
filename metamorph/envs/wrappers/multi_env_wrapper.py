@@ -3,10 +3,10 @@
 import os
 import random
 
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
-from gym import utils
+from gymnasium import spaces
+from gymnasium import utils
 
 from metamorph.config import cfg
 from metamorph.envs.modules.agent import create_agent_xml
@@ -36,10 +36,15 @@ class MultiEnvWrapper(utils.EzPickle):
         self._unimal_seq_idx += 1
         self._active_unimal_idx = self._unimal_seq[self._unimal_seq_idx]
         unimal_id = cfg.ENV.WALKERS[self._active_unimal_idx]
-        self._env.update(unimal_id, self._active_unimal_idx)
+        base_env = getattr(self._env, "unwrapped", self._env)
+        if hasattr(base_env, "update"):
+            base_env.update(unimal_id, self._active_unimal_idx)
         obs = self._env.reset()
+        info = {}
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, info = obs
 
-        return obs
+        return obs, info
 
     def step(self, action):
         self.num_steps += 1
@@ -138,16 +143,19 @@ class MultiUnimalNodeCentricObservation(gym.ObservationWrapper):
 
     def reset(self, **kwargs):
         observation = self.env.reset(**kwargs)
+        info = {}
+        if isinstance(observation, tuple) and len(observation) == 2:
+            observation, info = observation
         self._create_padding_mask()
-        return self.observation(observation)
+        return self.observation(observation), info
 
 
 class MultiUnimalNodeCentricAction(gym.ActionWrapper):
     def __init__(self, env):
         super().__init__(env)
-        self._update_action_space()
         self.max_limbs = cfg.MODEL.MAX_LIMBS
         self.max_joints = cfg.MODEL.MAX_JOINTS
+        self._update_action_space()
 
     def _update_action_space(self):
         num_joints = self.metadata["num_joints"]

@@ -46,6 +46,8 @@ class VecVideoRecorder(VecEnvWrapper):
 
     def reset(self):
         obs = self.venv.reset()
+        if isinstance(obs, tuple) and len(obs) == 2:
+            obs, _ = obs
 
         self.start_video_recorder()
 
