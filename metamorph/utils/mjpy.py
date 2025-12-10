@@ -269,6 +269,7 @@ class MjxSim:
         self.forward()
 
     def step(self):
+        # ctrl is updated in-place by callers, so convert on every step before dispatching to JAX
         ctrl = jnp.asarray(self.data.ctrl)
         self._mjx_data = self._step_fn(self._mjx_data, ctrl)
         self._sync_from_mjx()
@@ -309,10 +310,11 @@ def make_sim(
     mjx_jit: bool = True,
 ):
     normalized = backend.lower()
+    impl = None if mjx_impl == "" else mjx_impl
     if normalized == "mujoco":
         return MjSim(model)
     if normalized == "mjx":
-        return MjxSim(model, device=mjx_device, impl=mjx_impl or None, use_jit=mjx_jit)
+        return MjxSim(model, device=mjx_device, impl=impl, use_jit=mjx_jit)
     raise ValueError(f"Unsupported Mujoco backend '{backend}'")
 
 

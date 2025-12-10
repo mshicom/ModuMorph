@@ -1,7 +1,7 @@
 pyyaml
 lxml
 gymnasium==0.29.1
-gym==0.26.2
+gym==0.26.2  # required for existing video recorder wrapper
 networkx
 numpy<2
 mujoco==3.4.0
