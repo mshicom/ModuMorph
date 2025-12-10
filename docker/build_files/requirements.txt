@@ -2,6 +2,10 @@ pyyaml
 lxml
 gymnasium==0.29.1
 networkx
-mujoco==3.1.1
+mujoco==3.4.0
+mujoco-mjx==3.4.0
+jax==0.4.35
+jaxlib==0.4.35
+trimesh==4.10.1
 tensorboard
 matplotlib

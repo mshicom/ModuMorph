@@ -96,7 +96,13 @@ class UnimalEnv(gym.Env):
 
         xml_str = xu.etree_to_str(root)
         model = mu.load_model_from_xml(xml_str)
-        sim = mu.MjSim(model)
+        sim = mu.make_sim(
+            model,
+            backend=cfg.ENV.MJ_BACKEND,
+            mjx_device=cfg.MJX.DEVICE,
+            mjx_impl=cfg.MJX.IMPL,
+            mjx_jit=cfg.MJX.JIT,
+        )
         # Update module fields which require sim
         for _, module in self.modules.items():
             module.modify_sim_step(self, sim)
