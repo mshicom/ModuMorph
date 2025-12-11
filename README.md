@@ -25,6 +25,7 @@ Ours (ModuMorph):
 ```python
 python tools/train_ppo.py --cfg ./configs/ft.yaml OUT_DIR ./output/folder_name/1409 ENV.WALKER_DIR ./unimals_100/train RNG_SEED 1409 PPO.KL_TARGET_COEF 5. MODEL.TRANSFORMER.POS_EMBEDDING None MODEL.TRANSFORMER.EMBEDDING_DROPOUT False MODEL.TRANSFORMER.FIX_ATTENTION True MODEL.TRANSFORMER.HYPERNET True MODEL.TRANSFORMER.CONTEXT_ENCODER linear
 ```
+To enable the GPU-accelerated MJX backend, add `ENV.MJ_BACKEND mjx` (and optionally `MJX.DEVICE`/`MJX.IMPL`) to the overrides.
 We also provide `train_single_robot.py` to train on a single robot, and `evaluate.py` to evaluate a learned policy on different robots. 
 
 ## Support for classical Mujoco robots

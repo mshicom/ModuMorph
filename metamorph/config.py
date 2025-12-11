@@ -92,6 +92,15 @@ _C.ENV.NEW_SIM_ON_RESET = True
 # whether to use a fixed env for each process
 _C.ENV.FIX_ENV  = False
 
+# Mujoco simulation backend. Supported values: "mujoco", "mjx".
+_C.ENV.MJ_BACKEND = "mujoco"
+
+# Options specific to the MJX backend
+_C.MJX = CN()
+_C.MJX.DEVICE = ""
+_C.MJX.IMPL = ""
+_C.MJX.JIT = True
+
 # ----------------------------------------------------------------------------#
 # Terrain Options
 # ----------------------------------------------------------------------------#

@@ -2,7 +2,10 @@ import itertools
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
+import jax
+import jax.numpy as jnp
 import mujoco
+import mujoco.mjx as mjx
 import numpy as np
 from lxml import etree
 
@@ -201,6 +204,116 @@ class MjSim:
         if state.act is not None:
             self.data.act[:] = state.act
         self.forward()
+
+
+def _select_jax_device(device_name: Optional[str]):
+    if device_name is None or device_name == "":
+        return None
+    normalized = device_name.lower()
+    for dev in jax.devices():
+        full_name = f"{dev.platform}:{dev.id}"
+        if normalized == full_name or normalized == dev.platform or normalized == str(dev.id):
+            return dev
+        if normalized == dev.device_kind.lower():
+            return dev
+    raise ValueError(f"Requested JAX device '{device_name}' not found among {[f'{d.platform}:{d.id}' for d in jax.devices()]}")
+
+
+class MjxSim:
+    """Simulation wrapper backed by mujoco.mjx for GPU-accelerated stepping."""
+
+    def __init__(
+        self,
+        model: mujoco.MjModel,
+        *,
+        device: Optional[str] = None,
+        impl: Optional[str] = None,
+        use_jit: bool = True,
+    ):
+        self.model = ModelWrapper(model)
+        self.data = DataWrapper(self.model, mujoco.MjData(model))
+        self._initial_qpos = self.data.qpos.copy()
+        self._initial_qvel = self.data.qvel.copy()
+        self._device = _select_jax_device(device)
+        self._impl = impl
+        self._mjx_model = mjx.put_model(model, device=self._device, impl=impl)
+        self._mjx_data = mjx.make_data(self._mjx_model)
+        self._refresh_mjx_data_from_host()
+        self._step_fn = jax.jit(self._step_impl) if use_jit else self._step_impl
+        self._forward_fn = jax.jit(self._forward_impl) if use_jit else self._forward_impl
+        self.forward()
+
+    def _device_put(self, arr):
+        return jax.device_put(arr, self._device) if self._device else jnp.asarray(arr)
+
+    def _refresh_mjx_data_from_host(self):
+        self._mjx_data = self._mjx_data.replace(
+            qpos=self._device_put(self.data.qpos),
+            qvel=self._device_put(self.data.qvel),
+            act=self._device_put(self.data.act),
+            time=self.data.time,
+        )
+
+    def _sync_from_mjx(self):
+        self.data._data = mjx.get_data(self.model._model, self._mjx_data)
+
+    def _step_impl(self, mjx_data: mjx.Data, ctrl: jnp.ndarray):
+        return mjx.step(self._mjx_model, mjx_data.replace(ctrl=ctrl))
+
+    def _forward_impl(self, mjx_data: mjx.Data):
+        return mjx.forward(self._mjx_model, mjx_data)
+
+    def reset(self):
+        mujoco.mj_resetData(self.model._model, self.data._data)
+        self.data.qpos[:] = self._initial_qpos
+        self.data.qvel[:] = self._initial_qvel
+        self._mjx_data = mjx.make_data(self._mjx_model)
+        self._refresh_mjx_data_from_host()
+        self.forward()
+
+    def step(self):
+        # ctrl is updated in-place by callers, so convert on every step before dispatching to JAX
+        ctrl = self._device_put(self.data.ctrl)
+        self._mjx_data = self._step_fn(self._mjx_data, ctrl)
+        self._sync_from_mjx()
+
+    def forward(self):
+        self._mjx_data = self._forward_fn(self._mjx_data)
+        self._sync_from_mjx()
+
+    def get_state(self) -> MjSimState:
+        return MjSimState(
+            self.data.time,
+            self.data.qpos.copy(),
+            self.data.qvel.copy(),
+            self.data.act.copy(),
+            udd_state=None,
+        )
+
+    def set_state(self, state: MjSimState):
+        self.data.qpos[:] = state.qpos
+        self.data.qvel[:] = state.qvel
+        if state.act is not None:
+            self.data.act[:] = state.act
+        self._refresh_mjx_data_from_host()
+        self.forward()
+
+
+def make_sim(
+    model: mujoco.MjModel,
+    backend: str = "mujoco",
+    *,
+    mjx_device: Optional[str] = None,
+    mjx_impl: Optional[str] = None,
+    mjx_jit: bool = True,
+):
+    normalized = backend.lower()
+    impl = None if mjx_impl == "" else mjx_impl
+    if normalized == "mujoco":
+        return MjSim(model)
+    if normalized == "mjx":
+        return MjxSim(model, device=mjx_device, impl=impl, use_jit=mjx_jit)
+    raise ValueError(f"Unsupported Mujoco backend '{backend}'")
 
 
 class OffscreenViewer:
