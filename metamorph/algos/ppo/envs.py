@@ -15,7 +15,6 @@ from metamorph.envs.vec_env.subproc_vec_env import SubprocVecEnv
 from metamorph.envs.vec_env.vec_normalize import VecNormalize
 from metamorph.envs.wrappers.multi_env_wrapper import MultiEnvWrapper
 
-from modular.wrappers import ModularObservationPadding, ModularActionPadding
 
 
 def make_env(env_id, seed, rank, xml_file=None):

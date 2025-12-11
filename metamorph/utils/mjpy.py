@@ -237,15 +237,22 @@ class MjxSim:
         self._device = _select_jax_device(device)
         self._impl = impl
         self._mjx_model = mjx.put_model(model, device=self._device, impl=impl)
-        self._mjx_data = mjx.put_data(
-            model,
-            self.data._data,
-            device=self._device,
-            impl=impl,
-        )
+        self._mjx_data = mjx.make_data(self._mjx_model)
+        self._refresh_mjx_data_from_host()
         self._step_fn = jax.jit(self._step_impl) if use_jit else self._step_impl
         self._forward_fn = jax.jit(self._forward_impl) if use_jit else self._forward_impl
         self.forward()
+
+    def _device_put(self, arr):
+        return jax.device_put(arr, self._device) if self._device else jnp.asarray(arr)
+
+    def _refresh_mjx_data_from_host(self):
+        self._mjx_data = self._mjx_data.replace(
+            qpos=self._device_put(self.data.qpos),
+            qvel=self._device_put(self.data.qvel),
+            act=self._device_put(self.data.act),
+            time=self.data.time,
+        )
 
     def _sync_from_mjx(self):
         self.data._data = mjx.get_data(self.model._model, self._mjx_data)
@@ -260,17 +267,13 @@ class MjxSim:
         mujoco.mj_resetData(self.model._model, self.data._data)
         self.data.qpos[:] = self._initial_qpos
         self.data.qvel[:] = self._initial_qvel
-        self._mjx_data = mjx.put_data(
-            self.model._model,
-            self.data._data,
-            device=self._device,
-            impl=self._impl,
-        )
+        self._mjx_data = mjx.make_data(self._mjx_model)
+        self._refresh_mjx_data_from_host()
         self.forward()
 
     def step(self):
         # ctrl is updated in-place by callers, so convert on every step before dispatching to JAX
-        ctrl = jnp.asarray(self.data.ctrl)
+        ctrl = self._device_put(self.data.ctrl)
         self._mjx_data = self._step_fn(self._mjx_data, ctrl)
         self._sync_from_mjx()
 
@@ -292,12 +295,7 @@ class MjxSim:
         self.data.qvel[:] = state.qvel
         if state.act is not None:
             self.data.act[:] = state.act
-        self._mjx_data = mjx.put_data(
-            self.model._model,
-            self.data._data,
-            device=self._device,
-            impl=self._impl,
-        )
+        self._refresh_mjx_data_from_host()
         self.forward()
 
 
